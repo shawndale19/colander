@@ -1,30 +1,6 @@
 2.0 (2022-01-02)
 ================
 
-- Drop support for Python 2.7, 3.4, 3.5, 3.6.
-
-- Add support for Python 3.10, 3.11.
-
-- **[breaking]** If a ``bytes`` object is serialized by a ``String`` schema
-  node with the ``encoding`` parameter specified, it will be passed through
-  directly to ``str`` first, causing it to come out with a ``b''`` prefix. In
-  order to serialize it properly, it should be decoded to a string first.
-  Previously, when the ``encoding`` parameter was specified it would be decoded
-  and re-encoded, effectively passing it through untouched, despite not being a
-  string type.
-
-- Add a new ``colander.DataURL`` validator.
-  See https://github.com/Pylons/colander/pull/348
-
-- Add IDN support to ``colander.url``.
-  See https://github.com/Pylons/colander/pull/352
-
-- ``colander.All`` now supports ``colander.Invalid.msg`` being ``None`` or a
-  list, otherwise ``colander.Invalid.asdict`` crashes with
-  ``TypeError: sequence item 1: expected str instance, NoneType found``.
-  See https://github.com/Pylons/colander/pull/333 and
-  https://github.com/Pylons/colander/issues/194
-
 - Fixed an issue with ``colander.Mapping`` and ``colander.Sequence``
   where a ``default`` value of ``drop`` caused missing values to be dropped
   during deserialization. (Only ``missing`` values should affect
@@ -196,7 +172,7 @@
   empty string. When False (default), an empty string deserializes to
   ``colander.null``. This allows for a node to be explicitly required, but
   allow an empty ('') value to be provided.
-  https://github.com/Pylons/colander/pull/199
+  https://github.com/Pylons/colander/issues/199
 
 - Add ``separator`` parameter to ``colander.Invalid.asdict``
   (for backward compatibility, default is '; ').
@@ -213,7 +189,7 @@
 Features
 --------
 
-- Add new exception ``UnsupportedFields``. Used to pass to the caller a list
+- Add new exception `UnsupportedFields`. Used to pass to the caller a list
   of extra fields detected in a cstruct during deserialize.
   See https://github.com/Pylons/colander/pull/241
 
@@ -264,7 +240,7 @@ Features
 - Add a ``missing_msg`` argument to ``SchemaNode``, allowing customization
   of the error message used when the node is required and missing.
 
-- Add ``NoneOf`` validator which succeeds if the value is none of the choices.
+- Add `NoneOf` validator wich succeeds if the value is none of the choices.
 
 - Add ``normalize`` option to ``Decimal``, stripping the rightmost
   trailing zeros.
@@ -947,11 +923,11 @@ Documentation
   deal with the potential to receive ``colander.null``.
 
 - Use ``default_tzinfo`` when deserializing naive datetimes.  See
-  https://github.com/Pylons/colander/pull/5
+  https://github.com/Pylons/colander/issues#issue/5.
 
 - Allow ``default_tzinfo`` to be ``None`` when creating a
   ``colander.DateTime``.  See
-  https://github.com/Pylons/colander/pull/6
+  https://github.com/Pylons/colander/issues#issue/6.
 
 - Add the ability to insert a ``colander.interfaces.Preparer`` between
   deserialization and validation. See the Preparing section in the
@@ -1136,7 +1112,7 @@ Backwards Incompatiblities / New Features
 - Updated and expanded documentation, particularly with respect to new
   ``colander.null`` handling.
 
-- The ``value`` argument to the ``serialize`` method of a SchemaNode
+- The ``value`` argument`` to the ``serialize`` method of a SchemaNode
   is now named ``appstruct``.  It is no longer a required argument; it
   defaults to ``colander.null`` now.
 
