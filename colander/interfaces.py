@@ -22,8 +22,7 @@ def Validator(node, value):
     raising a :class:`colander.Invalid` exception.
     """
 
-
-class Type:
+class Type(object):
     def serialize(self, node, appstruct):
         """
         Serialize the :term:`appstruct` represented by ``appstruct``
@@ -58,3 +57,4 @@ class Type:
         If the object cannot be deserialized for any reason, a
         :exc:`colander.Invalid` exception should be raised.
         """
+

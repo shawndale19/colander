@@ -1,16 +1,19 @@
-# Simplified Chinese translations for colander.
+# Portuguese (Brazil) translations for colander.
+# Copyright (C) 2010 ORGANIZATION
 # This file is distributed under the same license as the colander project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2010.
+# Nando Florestan <nandoflorestan@gmail.com>, 2012.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: colander 0.8\n"
+"Project-Id-Version: colander 0.5.2\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
 "POT-Creation-Date: 2023-01-02 19:48-0600\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
-"Language: zh_Hans\n"
-"Language-Team: zh <LL@li.org>\n"
-"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"PO-Revision-Date: 2012-03-20 23:28-0300\n"
+"Last-Translator: Nando Florestan <nandoflorestan@gmail.com>\n"
+"Language: pt_BR\n"
+"Language-Team: Portuguese <>\n"
+"Plural-Forms: nplurals=2; plural=(n!=1);\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -18,26 +21,25 @@ msgstr ""
 
 #: src/colander/__init__.py:319
 msgid "Invalid value"
-msgstr "无效值"
+msgstr "Valor inválido"
 
 #: src/colander/__init__.py:375
 msgid "String does not match expected pattern"
-msgstr "字符串和要求的模式不匹配"
+msgstr "Não corresponde ao padrão esperado"
 
 #: src/colander/__init__.py:405
 msgid "Invalid email address"
-msgstr "无效的邮件地址"
+msgstr "Endereço de email inválido"
 
 #: src/colander/__init__.py:434
 msgid "Not a data URL"
 msgstr ""
 
-# | msgid "Invalid date"
 #: src/colander/__init__.py:435
 #, fuzzy
 #| msgid "Invalid time"
 msgid "Invalid MIME type"
-msgstr "无效日期"
+msgstr "Hora inválida"
 
 #: src/colander/__init__.py:436
 msgid "Invalid Base64 encoded data"
@@ -45,29 +47,29 @@ msgstr ""
 
 #: src/colander/__init__.py:494
 msgid "${val} is less than minimum value ${min}"
-msgstr "${val} 低于最低限值 ${min}"
+msgstr "${val} é menor do que o mínimo ${min}"
 
 #: src/colander/__init__.py:495
 msgid "${val} is greater than maximum value ${max}"
-msgstr "${val} 大于最高限值 ${max}"
+msgstr "${val} é maior do que o máximo ${max}"
 
 #: src/colander/__init__.py:545
 msgid "Shorter than minimum length ${min}"
-msgstr "短于最小长度 ${min}"
+msgstr "Mais curto do que o comprimento mínimo ${min}"
 
 #: src/colander/__init__.py:546
 msgid "Longer than maximum length ${max}"
-msgstr "长于最大长度 ${max}"
+msgstr "Mais longo do que o comprimento máximo ${max}"
 
 #: src/colander/__init__.py:569
 msgid "\"${val}\" is not one of ${choices}"
-msgstr "\"${val}\" 不是这些值 ${choices} 中的一个"
+msgstr "\"${val}\" não está entre ${choices}"
 
 #: src/colander/__init__.py:593
 #, fuzzy
 #| msgid "\"${val}\" is not one of ${choices}"
 msgid "\"${val}\" must not be one of ${choices}"
-msgstr "\"${val}\" 不是这些值 ${choices} 中的一个"
+msgstr "\"${val}\" não está entre ${choices}"
 
 #: src/colander/__init__.py:616
 msgid "One or more of the choices you made was not acceptable"
@@ -77,7 +79,7 @@ msgstr ""
 #, fuzzy
 #| msgid "\"${val}\" is not a number"
 msgid "\"${val}\" is not a valid credit card number"
-msgstr "\"${val}\" 不是数字"
+msgstr "\"${val}\" não é um número"
 
 #: src/colander/__init__.py:720
 msgid "Must be a URL"
@@ -93,41 +95,43 @@ msgstr ""
 
 #: src/colander/__init__.py:839
 msgid "\"${val}\" is not a mapping type: ${err}"
-msgstr "\"${val}\" 不是一个映射类型: ${err}"
+msgstr "\"${val}\" não é um tipo de mapeamento: ${err}"
 
 #: src/colander/__init__.py:889
 msgid "Unrecognized keys in mapping: \"${val}\""
-msgstr "无法识别的键: \"${val}\""
+msgstr "Chaves desconhecidas no mapeamento: \"${val}\""
 
 #: src/colander/__init__.py:990 src/colander/__init__.py:1230
 msgid "\"${val}\" is not iterable"
-msgstr "\"${val}\" 不可遍历"
+msgstr "Iterações não podem ser feitas em \"${val}\""
 
 #: src/colander/__init__.py:998
 msgid ""
 "\"${val}\" has an incorrect number of elements (expected ${exp}, was "
 "${was})"
-msgstr "\"${val}\" 的元素个数不正确 (要求 ${exp}, 实际 ${was})"
+msgstr ""
+"\"${val}\" tem um número incorreto de elementos (${exp} esperados, ${was}"
+" obtidos)"
 
 #: src/colander/__init__.py:1141 src/colander/__init__.py:1172
 msgid "${cstruct} is not iterable"
-msgstr "${cstruct} 不可遍历"
+msgstr "Iterações não podem ser feitas em ${cstruct}"
 
 #: src/colander/__init__.py:1462
 msgid "${val} cannot be serialized: ${err}"
-msgstr "${val} 不可序列化: ${err}"
+msgstr "\"${val} não pode ser serializado: ${err}"
 
 #: src/colander/__init__.py:1484
 msgid "${val} is not a string: ${err}"
-msgstr "${val} 不是字符串: ${err}"
+msgstr "${val} não é uma string: %{err}"
 
 #: src/colander/__init__.py:1507 src/colander/__init__.py:1518
 msgid "\"${val}\" is not a number"
-msgstr "\"${val}\" 不是数字"
+msgstr "\"${val}\" não é um número"
 
 #: src/colander/__init__.py:1697
 msgid "${val} is not a string"
-msgstr "${val} 不是字符串"
+msgstr "${val} não é uma string"
 
 #: src/colander/__init__.py:1709
 msgid "\"${val}\" is neither in (${false_choices}) nor in (${true_choices})"
@@ -136,51 +140,53 @@ msgstr ""
 #: src/colander/__init__.py:1775 src/colander/__init__.py:1794
 #: src/colander/__init__.py:1806
 msgid "relative name \"${val}\" irresolveable without package"
-msgstr "相关名字 \"${val}\" 无法找到"
+msgstr "O nome relativo \"${val}\" não pode ser resolvido sem o pacote"
 
 #: src/colander/__init__.py:1843
 msgid "\"${val}\" has no __name__"
-msgstr "\"${val}\" 没有 __name__"
+msgstr "\"${val}\" não tem __name__"
 
 #: src/colander/__init__.py:1852
 msgid "\"${val}\" is not a string"
-msgstr "\"${val}\" 不是字符串"
+msgstr "\"${val}\" não é uma string"
 
 #: src/colander/__init__.py:1862
 msgid "The dotted name \"${name}\" cannot be imported"
-msgstr "点名字 \"${name}\" 无法导入"
+msgstr "O pacote \"${name}\" não pode ser importado"
 
 #: src/colander/__init__.py:1915 src/colander/__init__.py:2005
 msgid "Invalid date"
-msgstr "无效日期"
+msgstr "Data inválida"
 
 #: src/colander/__init__.py:1932
 msgid "\"${val}\" is not a datetime object"
-msgstr "\"${val}\" 不是一个时间日期对象"
+msgstr "\"${val}\" não é um objeto datetime"
 
 #: src/colander/__init__.py:2020
 msgid "\"${val}\" is not a date object"
-msgstr "\"${val}\" 不是一个日期对象"
+msgstr "\"${val}\" não é um objeto date"
 
-# | msgid "Invalid date"
 #: src/colander/__init__.py:2085
-#, fuzzy
 msgid "Invalid time"
-msgstr "无效日期"
+msgstr "Hora inválida"
 
-# | msgid "\"${val}\" is not a datetime object"
 #: src/colander/__init__.py:2096
-#, fuzzy
 msgid "\"${val}\" is not a time object"
-msgstr "\"${val}\" 不是一个时间日期对象"
+msgstr "\"${val}\" não é um objeto time"
 
 #: src/colander/__init__.py:2161 src/colander/__init__.py:2177
 #, fuzzy
 #| msgid "\"${val}\" is not one of ${choices}"
 msgid "\"${val}\" is not a valid \"${cls}\""
-msgstr "\"${val}\" 不是这些值 ${choices} 中的一个"
+msgstr "\"${val}\" não está entre ${choices}"
 
 #: src/colander/__init__.py:2297
 msgid "Required"
-msgstr "必需"
+msgstr "Obrigatório"
+
+#~ msgid "\"${val}\" is required but missing"
+#~ msgstr "\"${val}\" é obrigatório, mas está vazio"
+
+#~ msgid "${val} cannot be parsed as an iso8601 date: ${err}"
+#~ msgstr "${val} não pode ser entendido como uma data iso8601: ${err}"
 
