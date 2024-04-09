@@ -1,38 +1,37 @@
-import base64
-import copy
+# coding=utf-8
+
 import datetime
 import decimal
 import functools
-from iso8601 import iso8601
+import time
 import itertools
-import mimetypes
 import pprint
 import re
 import translationstring
-import types
 import warnings
+
+from .compat import (
+    text_,
+    text_type,
+    string_types,
+    xrange,
+    is_nonstr_iter,
+    )
+
+from . import iso8601
 
 _ = translationstring.TranslationStringFactory('colander')
 
-
-class _required:
-    """Represents a required value in colander-related operations."""
-
+class _required(object):
+    """ Represents a required value in colander-related operations. """
     def __repr__(self):
         return '<colander.required>'
 
-    def __reduce__(self):
-        # when unpickled, refers to "required" below (singleton)
-        return 'required'
-
-
 required = _required()
-_marker = required  # bw compat
+_marker = required # bw compat
 
-
-class _null:
-    """Represents a null value in colander-related operations."""
-
+class _null(object):
+    """ Represents a null value in colander-related operations. """
     def __nonzero__(self):
         return False
 
@@ -43,28 +42,20 @@ class _null:
         return '<colander.null>'
 
     def __reduce__(self):
-        return 'null'  # when unpickled, refers to "null" below (singleton)
-
+        return 'null' # when unpickled, refers to "null" below (singleton)
 
 null = _null()
 
-
-class _drop:
-    """Represents a value that will be dropped from the schema if it
+class _drop(object):
+    """ Represents a value that will be dropped from the schema if it
     is missing during *serialization* or *deserialization*.  Passed as
     a value to the `missing` or `default` keyword argument
     of :class:`SchemaNode`.
     """
-
     def __repr__(self):
         return '<colander.drop>'
 
-    def __reduce__(self):
-        return 'drop'  # when unpickled, refers to "drop" below (singleton)
-
-
 drop = _drop()
-
 
 def interpolate(msgs):
     for s in msgs:
@@ -73,14 +64,12 @@ def interpolate(msgs):
         else:
             yield s
 
-
 class UnboundDeferredError(Exception):
     """
     An exception raised by :meth:`SchemaNode.deserialize` when an attempt
     is made to deserialize a node which has an unbound :class:`deferred`
     validator.
     """
-
 
 class Invalid(Exception):
     """
@@ -98,7 +87,6 @@ class Invalid(Exception):
     The constructor additionally may receive an optional ``value``
     keyword, indicating the value related to the error.
     """
-
     pos = None
     positional = False
 
@@ -110,7 +98,7 @@ class Invalid(Exception):
         self.children = []
 
     def messages(self):
-        """Return an iterable of error messages for this exception using the
+        """ Return an iterable of error messages for this exception using the
         ``msg`` attribute of this error node.  If the ``msg`` attribute is
         iterable, it is returned.  If it is not iterable, and is
         non-``None``, a single-element list containing the ``msg`` value is
@@ -122,7 +110,7 @@ class Invalid(Exception):
         return [self.msg]
 
     def add(self, exc, pos=None):
-        """Add a child exception; ``exc`` must be an instance of
+        """ Add a child exception; ``exc`` must be an instance of
         :class:`colander.Invalid` or a subclass.
 
         ``pos`` is a value important for accurate error reporting.  If
@@ -142,7 +130,7 @@ class Invalid(Exception):
         self.children.append(exc)
 
     def __setitem__(self, name, msg):
-        """Add a subexception related to a child node with the
+        """ Add a subexception related to a child node with the
         message ``msg``. ``name`` must be present in the names of the
         set of child nodes of this exception's node; if this is not
         so, a :exc:`KeyError` is raised.
@@ -167,12 +155,11 @@ class Invalid(Exception):
         raise KeyError(name)
 
     def paths(self):
-        """A generator which returns each path through the exception
+        """ A generator which returns each path through the exception
         graph.  Each path is represented as a tuple of exception
         nodes.  Within each tuple, the leftmost item will represent
         the root schema node, the rightmost item will represent the
         leaf schema node."""
-
         def traverse(node, stack):
             stack.append(node)
 
@@ -180,7 +167,8 @@ class Invalid(Exception):
                 yield tuple(stack)
 
             for child in node.children:
-                yield from traverse(child, stack)
+                for path in traverse(child, stack):
+                    yield path
 
             stack.pop()
 
@@ -192,7 +180,7 @@ class Invalid(Exception):
         return str(self.node.name)
 
     def asdict(self, translate=None, separator='; '):
-        """Return a dictionary containing a basic
+        """ Return a dictionary containing a basic
         (non-language-translated) error report for this exception.
 
         If ``translate`` is supplied, it must be a callable taking a
@@ -221,7 +209,7 @@ class Invalid(Exception):
         return errors
 
     def __str__(self):
-        """Return a pretty-formatted string representation of the
+        """ Return a pretty-formatted string representation of the
         result of an execution of this exception's ``asdict`` method"""
         return pprint.pformat(self.asdict())
 
@@ -233,14 +221,13 @@ class UnsupportedFields(Invalid):
     """
 
     def __init__(self, node, fields, msg=None):
-        super().__init__(node, msg)
+        super(UnsupportedFields, self).__init__(node, msg)
         self.fields = fields
 
 
-class All:
-    """Composite validator which succeeds if none of its
+class All(object):
+    """ Composite validator which succeeds if none of its
     subvalidators raises an :class:`colander.Invalid` exception"""
-
     def __init__(self, *validators):
         self.validators = validators
 
@@ -253,63 +240,49 @@ class All:
                 excs.append(e)
 
         if excs:
-            children = []
-            messages = []
-            for exception in excs:
-                if exception.msg is not None:
-                    if is_nonstr_iter(exception.msg):
-                        messages.extend(exception.msg)
-                    else:
-                        messages.append(exception.msg)
-                children.extend(exception.children)
-
-            exc = Invalid(node, messages)
-            exc.children.extend(children)
+            exc = Invalid(node, [exc.msg for exc in excs])
+            for e in excs:
+                exc.children.extend(e.children)
             raise exc
 
-
 class Any(All):
-    """Composite validator which succeeds if at least one of its
+    """ Composite validator which succeeds if at least one of its
     subvalidators does not raise an :class:`colander.Invalid` exception."""
-
     def __call__(self, node, value):
         try:
-            return super().__call__(node, value)
+            return super(Any, self).__call__(node, value)
         except Invalid as e:
             if len(e.msg) < len(self.validators):
                 # At least one validator did not fail:
                 return
             raise
 
-
-class Function:
-    """Validator which accepts a function and an optional message;
+class Function(object):
+    """ Validator which accepts a function and an optional message;
     the function is called with the ``value`` during validation.
 
-    If the function returns anything falsey (``None``, ``False``, the
+    If the function returns anything falsy (``None``, ``False``, the
     empty string, ``0``, an object with a ``__nonzero__`` that returns
     ``False``, etc) when called during validation, an
     :exc:`colander.Invalid` exception is raised (validation fails);
     its msg will be the value of the ``msg`` argument passed to this
     class' constructor.
 
-    If the function returns a ``str`` object that is *not* the empty string,
-    a :exc:`colander.Invalid` exception is raised using the string
-    value returned from the function as the exception message
+    If the function returns a stringlike object (a ``str`` or
+    ``unicode`` object) that is *not* the empty string , a
+    :exc:`colander.Invalid` exception is raised using the stringlike
+    value returned from the function as the exeption message
     (validation fails).
 
-    If the function returns anything *except* a string object
-    which is truthy (e.g. ``True``, the integer ``1``, an
+    If the function returns anything *except* a stringlike object
+    object which is truthy (e.g. ``True``, the integer ``1``, an
     object with a ``__nonzero__`` that returns ``True``, etc), an
     :exc:`colander.Invalid` exception is *not* raised (validation
     succeeds).
 
     The default value for the ``msg`` when not provided via the
     constructor is ``Invalid value``.
-
-    The ``message`` parameter has been deprecated, use ``msg`` instead.
     """
-
     def __init__(self, function, msg=None, message=None):
         self.function = function
         if msg is not None and message is not None:
@@ -321,8 +294,8 @@ class Function:
             warnings.warn(
                 'The "message" argument has been deprecated, use "msg" '
                 'instead.',
-                DeprecationWarning,
-            )
+                DeprecationWarning
+                )
             msg = message
         self.msg = msg
 
@@ -330,44 +303,34 @@ class Function:
         result = self.function(value)
         if not result:
             raise Invalid(
-                node,
-                translationstring.TranslationString(
-                    self.msg, mapping={'val': value}
-                ),
-            )
-        if isinstance(result, str):
+                node, translationstring.TranslationString(
+                    self.msg, mapping={'val':value}))
+        if isinstance(result, string_types):
             raise Invalid(
-                node,
-                translationstring.TranslationString(
-                    result, mapping={'val': value}
-                ),
-            )
+                node, translationstring.TranslationString(
+                    result, mapping={'val':value}))
 
+class Regex(object):
+    """ Regular expression validator.
 
-class Regex:
-    """Regular expression validator.
+        Initialize it with the string regular expression ``regex``
+        that will be compiled and matched against ``value`` when
+        validator is called. If ``msg`` is supplied, it will be the
+        error message to be used; otherwise, defaults to 'String does
+        not match expected pattern'.
 
-    Initialize it with the string regular expression ``regex`` that will
-    be compiled and matched against ``value`` when validator is called. It
-    uses Python's :py:func:`re.match`, which only matches at the beginning
-    of the string and not at the beginning of each line. To match the
-    entire string, enclose the regular expression with ``^`` and ``$``.
-    If ``msg`` is supplied, it will be the error message to be used;
-    otherwise, defaults to 'String does not match expected pattern'.
+        The ``regex`` expression behaviour can be modified by specifying
+        any ``flags`` value taken by ``re.compile``.
 
-    The ``regex`` expression behaviour can be modified by specifying
-    any ``flags`` value taken by ``re.compile``.
+        The ``regex`` argument may also be a pattern object (the
+        result of ``re.compile``) instead of a string.
 
-    The ``regex`` argument may also be a pattern object (the
-    result of ``re.compile``) instead of a string.
-
-    When calling, if ``value`` matches the regular expression,
-    validation succeeds; otherwise, :exc:`colander.Invalid` is
-    raised with the ``msg`` error message.
+        When calling, if ``value`` matches the regular expression,
+        validation succeeds; otherwise, :exc:`colander.Invalid` is
+        raised with the ``msg`` error message.
     """
-
     def __init__(self, regex, msg=None, flags=0):
-        if isinstance(regex, str):
+        if isinstance(regex, string_types):
             self.match_object = re.compile(regex, flags)
         else:
             self.match_object = regex
@@ -380,93 +343,22 @@ class Regex:
         if self.match_object.match(value) is None:
             raise Invalid(node, self.msg)
 
-
-# Regex for email addresses.
-#
-# Stolen from the WhatWG HTML spec:
-# https://html.spec.whatwg.org/multipage/input.html#e-mail-state-(type=email)
-#
-# If it is good enough for browsers, it is good enough for us!
-EMAIL_RE = (
-    r"^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9]"
-    r"(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9]"
-    r"(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
-)
-
+EMAIL_RE = "(?i)^[A-Z0-9._%!#$%&'*+-/=?^_`{|}~()]+@[A-Z0-9]+([.-][A-Z0-9]+)*\.[A-Z]{2,22}$"
 
 class Email(Regex):
-    """Email address validator. If ``msg`` is supplied, it will be
-    the error message to be used when raising :exc:`colander.Invalid`;
-    otherwise, defaults to 'Invalid email address'.
+    """ Email address validator. If ``msg`` is supplied, it will be
+        the error message to be used when raising :exc:`colander.Invalid`;
+        otherwise, defaults to 'Invalid email address'.
     """
 
     def __init__(self, msg=None):
+        email_regex = text_(EMAIL_RE)
         if msg is None:
             msg = _("Invalid email address")
-        super().__init__(EMAIL_RE, msg=msg)
+        super(Email, self).__init__(email_regex, msg=msg)
 
-
-# Regex for data URLs, loosely based on MDN:
-# https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/Data_URLs
-DATA_URL_REGEX = (
-    # data: (required)
-    r'^data:'
-    # optional mime type
-    r'([^;]*)?'
-    # optional base64 identifier
-    r'(;base64)?'
-    # actual data follows the comma
-    r',(.*)$'
-)
-
-
-class DataURL(Regex):
-    """A data URL validator.
-
-    If ``url_msg`` is supplied, it will be the error message to be used when
-    raising :exc:`colander.Invalid` for a syntactically incorrect data URL,
-    defaults to 'Not a data URL'. If, however, the data URL string is
-    syntactically correct but contains an invalid MIME type, ``mimetype_err``
-    is raised (defaults to 'Invalid MIME type'); for incorrectly encoded Base64
-    data, ``base64_err`` is raised (defaults to 'Invalid Base64 encoded data').
-    """
-
-    _URL_ERR = _("Not a data URL")
-    _MIMETYPE_ERR = _("Invalid MIME type")
-    _BASE64_ERR = _("Invalid Base64 encoded data")
-
-    def __init__(
-        self,
-        url_err=_URL_ERR,
-        mimetype_err=_MIMETYPE_ERR,
-        base64_err=_BASE64_ERR,
-    ):
-        self.url_err = url_err
-        self.mimetype_err = mimetype_err
-        self.base64_err = base64_err
-        super().__init__(DATA_URL_REGEX, msg=url_err, flags=re.IGNORECASE)
-
-    def __call__(self, node, value):
-        match_ = self.match_object.match(value)
-        if match_ is None:
-            raise Invalid(node, self.url_err)
-        excs = []
-        mime, is_base64_data, data = match_.groups()
-        if mime and mime not in mimetypes.types_map.values():
-            excs.append(self.mimetype_err)
-        try:
-            if is_base64_data:
-                base64.standard_b64decode(data)
-        except Exception:
-            excs.append(self.base64_err)
-        if len(excs) == 1:
-            raise Invalid(node, excs[0])
-        elif len(excs) == 2:
-            raise Invalid(node, excs)
-
-
-class Range:
-    """Validator which succeeds if the value it is passed is greater
+class Range(object):
+    """ Validator which succeeds if the value it is passed is greater
     or equal to ``min`` and less than or equal to ``max``.  If ``min``
     is not specified, or is specified as ``None``, no lower bound
     exists.  If ``max`` is not specified, or is specified as ``None``,
@@ -490,7 +382,6 @@ class Range:
     provided, it defaults to ``'${val} is greater than maximum value
     ${max}'``.
     """
-
     _MIN_ERR = _('${val} is less than minimum value ${min}')
     _MAX_ERR = _('${val} is greater than maximum value ${max}')
 
@@ -504,44 +395,41 @@ class Range:
         if self.min is not None:
             if value < self.min:
                 min_err = _(
-                    self.min_err, mapping={'val': value, 'min': self.min}
-                )
+                    self.min_err, mapping={'val':value, 'min':self.min})
                 raise Invalid(node, min_err)
 
         if self.max is not None:
             if value > self.max:
                 max_err = _(
-                    self.max_err, mapping={'val': value, 'max': self.max}
-                )
+                    self.max_err, mapping={'val':value, 'max':self.max})
                 raise Invalid(node, max_err)
 
 
-class Length:
+class Length(object):
     """Validator which succeeds if the value passed to it has a
-    length between a minimum and maximum, expressed in the
-    optional ``min`` and ``max`` arguments.
-    The value can be any sequence, most often a string.
+        length between a minimum and maximum, expressed in the
+        optional ``min`` and ``max`` arguments.
+        The value can be any sequence, most often a string.
 
-    If ``min`` is not specified, or is specified as ``None``,
-    no lower bound exists.  If ``max`` is not specified, or
-    is specified as ``None``, no upper bound exists.
+        If ``min`` is not specified, or is specified as ``None``,
+        no lower bound exists.  If ``max`` is not specified, or
+        is specified as ``None``, no upper bound exists.
 
-    The default error messages are "Shorter than minimum length ${min}"
-    and "Longer than maximum length ${max}". These can be customized:
+        The default error messages are "Shorter than minimum length ${min}"
+        and "Longer than maximum length ${max}". These can be customized:
 
-    ``min_err`` is used to form the ``msg`` of the
-    :exc:`colander.Invalid` error when reporting a validation failure
-    caused by a value not meeting the minimum length.  If ``min_err`` is
-    specified, it must be a string.  The string may contain the
-    replacement target ``${min}``.
+        ``min_err`` is used to form the ``msg`` of the
+        :exc:`colander.Invalid` error when reporting a validation failure
+        caused by a value not meeting the minimum length.  If ``min_err`` is
+        specified, it must be a string.  The string may contain the
+        replacement target ``${min}``.
 
-    ``max_err`` is used to form the ``msg`` of the
-    :exc:`colander.Invalid` error when reporting a validation failure
-    caused by a value exceeding the maximum length.  If ``max_err`` is
-    specified, it must be a string.  The string may contain the
-    replacement target ``${max}``.
-    """
-
+        ``max_err`` is used to form the ``msg`` of the
+        :exc:`colander.Invalid` error when reporting a validation failure
+        caused by a value exceeding the maximum length.  If ``max_err`` is
+        specified, it must be a string.  The string may contain the
+        replacement target ``${max}``.
+        """
     _MIN_ERR = _('Shorter than minimum length ${min}')
     _MAX_ERR = _('Longer than maximum length ${max}')
 
@@ -562,25 +450,22 @@ class Length:
                 raise Invalid(node, max_err)
 
 
-class OneOf:
-    """Validator which succeeds if the value passed to it is one of
-    a fixed set of values"""
-
-    _MSG_ERR = _('"${val}" is not one of ${choices}')
-
-    def __init__(self, choices, msg_err=_MSG_ERR):
-        self.msg_err = msg_err
+class OneOf(object):
+    """ Validator which succeeds if the value passed to it is one of
+    a fixed set of values """
+    def __init__(self, choices):
         self.choices = choices
 
     def __call__(self, node, value):
-        if value not in self.choices:
+        if not value in self.choices:
             choices = ', '.join(['%s' % x for x in self.choices])
-            err = _(self.msg_err, mapping={'val': value, 'choices': choices})
+            err = _('"${val}" is not one of ${choices}',
+                    mapping={'val':value, 'choices':choices})
             raise Invalid(node, err)
 
 
-class NoneOf:
-    """Validator which succeeds if the value passed to it is none of a
+class NoneOf(object):
+    """ Validator which succeeds if the value passed to it is none of a
     fixed set of values.
 
     ``msg_err`` is used to form the ``msg`` of the :exc:`colander.Invalid`
@@ -589,7 +474,6 @@ class NoneOf:
     ``${choices}`` and ``${val}``, representing the set of forbidden values
     and the provided value respectively.
     """
-
     _MSG_ERR = _('"${val}" must not be one of ${choices}')
 
     def __init__(self, choices, msg_err=_MSG_ERR):
@@ -606,15 +490,15 @@ class NoneOf:
         raise Invalid(node, err)
 
 
-class ContainsOnly:
-    """Validator which succeeds if the value passed to is a sequence and each
+class ContainsOnly(object):
+    """ Validator which succeeds if the value passed to is a sequence and each
     element in the sequence is also in the sequence passed as ``choices``.
     This validator is useful when attached to a schemanode with, e.g. a
     :class:`colander.Set` or another sequencetype.
     """
-
-    err_template = _('One or more of the choices you made was not acceptable')
-
+    err_template = _(
+        'One or more of the choices you made was not acceptable'
+        )
     def __init__(self, choices):
         self.choices = choices
 
@@ -622,130 +506,59 @@ class ContainsOnly:
         if not set(value).issubset(self.choices):
             err = _(
                 self.err_template,
-                mapping={'val': value, 'choices': self.choices},
-            )
+                mapping = {'val':value, 'choices':self.choices}
+                )
             raise Invalid(node, err)
 
-
 def luhnok(node, value):
-    """Validator which checks to make sure that the value passes a luhn
+    """ Validator which checks to make sure that the value passes a luhn
     mod-10 checksum (credit cards).  ``value`` must be a string, not an
     integer."""
     try:
-        checksum = _luhnok(value)
-    except ValueError:
-        raise Invalid(
-            node,
-            _(
-                '"${val}" is not a valid credit card number',
-                mapping={'val': value},
-            ),
-        )
+        sum = _luhnok(value)
+    except:
+        raise Invalid(node,
+                      _('"${val}" is not a valid credit card number',
+                        mapping={'val': value}))
 
-    if (checksum % 10) != 0:
-        raise Invalid(
-            node,
-            _(
-                '"${val}" is not a valid credit card number',
-                mapping={'val': value},
-            ),
-        )
-
+    if not (sum % 10) == 0:
+        raise Invalid(node,
+                      _('"${val}" is not a valid credit card number',
+                        mapping={'val': value}))
 
 def _luhnok(value):
-    checksum = 0
+    sum = 0
     num_digits = len(value)
     oddeven = num_digits & 1
 
     for count in range(0, num_digits):
         digit = int(value[count])
 
-        if not ((count & 1) ^ oddeven):
-            digit *= 2
+        if not (( count & 1 ) ^ oddeven ):
+            digit = digit * 2
         if digit > 9:
-            digit -= 9
+            digit = digit - 9
 
-        checksum += digit
-    return checksum
+        sum = sum + digit
+    return sum
 
+URL_REGEX = r"""(?i)\b((?:[a-z][\w-]+:(?:/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'".,<>?«»“”‘’]))""" # "emacs!
 
-# port from Django 4.1.x:
-# https://github.com/django/django/blob/stable/4.1.x/django/core/validators.py#L70
-
-
-def _make_url_regex_src():
-    ul = "\u00a1-\uffff"  # Unicode letters range (must not be a raw string).
-
-    # IP patterns
-    ipv4_re = (
-        r"(?:0|25[0-5]|2[0-4][0-9]|1[0-9]?[0-9]?|[1-9][0-9]?)"
-        r"(?:\.(?:0|25[0-5]|2[0-4][0-9]|1[0-9]?[0-9]?|[1-9][0-9]?)){3}"
-    )
-    ipv6_re = r"\[[0-9a-f:.]+\]"  # (simple regex, validated later)
-
-    # Host patterns
-    hostname_re = (
-        (r"[a-z" + ul + r"0-9]")
-        + r"(?:"
-        + (r"[a-z" + ul + r"0-9-]{0,61}")
-        + (r"[a-z" + ul + r"0-9]")
-        + r")?"
-    )
-    # Max length for domain name labels is 63 characters per RFC 1034 sec. 3.1
-    domain_re = r"(?:\.(?!-)[a-z" + ul + r"0-9-]{1,63}(?<!-))*"
-    tld_re = (
-        r"\."  # dot
-        r"(?!-)"  # can't start with a dash
-        r"(?:[a-z" + ul + "-]{2,63}"  # domain label
-        r"|xn--[a-z0-9]{1,59})"  # or punycode label
-        r"(?<!-)"  # can't end with a dash
-        r"\.?"  # may have a trailing dot
-    )
-    host_re = "(" + hostname_re + domain_re + tld_re + "|localhost)"
-
-    return (
-        # {http,ftp}s:// (not required)
-        r"^((?:http|ftp)s?://)?"
-        r"(?:[^\s:@/]+(?::[^\s:@/]*)?@)?"  # user:pass authentication
-        r"(?:" + ipv4_re + "|" + ipv6_re + "|" + host_re + ")"
-        r"(?::[0-9]{1,5})?"  # port
-        r"(?:[/?#][^\s]*)?"  # resource path
-        r"\Z"
-    )
+url = Regex(URL_REGEX, _('Must be a URL'))
 
 
-URL_REGEX = _make_url_regex_src()
-del _make_url_regex_src
-
-url = Regex(URL_REGEX, msg=_('Must be a URL'), flags=re.IGNORECASE)
-
-
-URI_REGEX = (
-    # file:// (required)
-    r'^file://'
-    # Path
-    r'(?:/|[/?]\S+)$'
-)
-
-file_uri = Regex(
-    URI_REGEX, msg=_('Must be a file:// URI scheme'), flags=re.IGNORECASE
-)
-
-UUID_REGEX = (
-    r'^(?:urn:uuid:)?\{?[a-f0-9]{8}(?:-?[a-f0-9]{4}){3}-?[a-f0-9]{12}\}?$'
-)
+UUID_REGEX = r"""^(?:urn:uuid:)?\{?[a-f0-9]{8}(?:-?[a-f0-9]{4}){3}-?[a-f0-9]{12}\}?$"""
 uuid = Regex(UUID_REGEX, _('Invalid UUID string'), re.IGNORECASE)
 
 
-class SchemaType:
-    """Base class for all schema types"""
-
+class SchemaType(object):
+    """ Base class for all schema types """
     def flatten(self, node, appstruct, prefix='', listitem=False):
         result = {}
         if listitem:
             selfname = prefix
         else:
-            selfname = f'{prefix}{node.name}'
+            selfname = '%s%s' % (prefix, node.name)
         result[selfname.rstrip('.')] = appstruct
         return result
 
@@ -763,9 +576,8 @@ class SchemaType:
     def cstruct_children(self, node, cstruct):
         return []
 
-
 class Mapping(SchemaType):
-    """A type which represents a mapping of names to nodes.
+    """ A type which represents a mapping of names to nodes.
 
     The subnodes of the :class:`colander.SchemaNode` that wraps
     this type imply the named keys and values in the mapping.
@@ -810,16 +622,14 @@ class Mapping(SchemaType):
     the values in the returned dictionary is the serialized
     representation of the null value for its type.
     """
-
     def __init__(self, unknown='ignore'):
         self.unknown = unknown
 
     def _set_unknown(self, value):
-        if value not in ('ignore', 'raise', 'preserve'):
+        if not value in ('ignore', 'raise', 'preserve'):
             raise ValueError(
                 'unknown attribute must be one of "ignore", "raise", '
-                'or "preserve"'
-            )
+                'or "preserve"')
         self._unknown = value
 
     def _get_unknown(self):
@@ -834,13 +644,10 @@ class Mapping(SchemaType):
             else:
                 raise TypeError('Does not implement dict-like functionality.')
         except Exception as e:
-            raise Invalid(
-                node,
-                _(
-                    '"${val}" is not a mapping type: ${err}',
-                    mapping={'val': value, 'err': e},
-                ),
-            )
+            raise Invalid(node,
+                          _('"${val}" is not a mapping type: ${err}',
+                          mapping = {'val':value, 'err':e})
+                          )
 
     def cstruct_children(self, node, cstruct):
         if cstruct is null:
@@ -866,8 +673,8 @@ class Mapping(SchemaType):
             name = subnode.name
             subval = value.pop(name, null)
             if subval is drop or (
-                subval is null
-                and getattr(subnode, default_or_missing, None) is drop
+                subval is null and
+                getattr(subnode, default_or_missing, None) is drop
             ):
                 continue
             try:
@@ -884,16 +691,12 @@ class Mapping(SchemaType):
         if self.unknown == 'raise':
             if value:
                 raise UnsupportedFields(
-                    node,
-                    value,
-                    msg=_(
-                        'Unrecognized keys in mapping: "${val}"',
-                        mapping={'val': value},
-                    ),
-                )
+                    node, value,
+                    msg=_('Unrecognized keys in mapping: "${val}"',
+                          mapping={'val': value}))
 
         elif self.unknown == 'preserve':
-            result.update(copy.deepcopy(value))
+            result.update(value)
 
         if error is not None:
             raise error
@@ -924,16 +727,15 @@ class Mapping(SchemaType):
             selfprefix = prefix
         else:
             if node.name:
-                selfprefix = f'{prefix}{node.name}.'
+                selfprefix = '%s%s.' % (prefix, node.name)
             else:
                 selfprefix = prefix
 
         for subnode in node.children:
             name = subnode.name
             substruct = appstruct.get(name, null)
-            result.update(
-                subnode.typ.flatten(subnode, substruct, prefix=selfprefix)
-            )
+            result.update(subnode.typ.flatten(subnode, substruct,
+                                              prefix=selfprefix))
         return result
 
     def unflatten(self, node, paths, fstruct):
@@ -945,8 +747,7 @@ class Mapping(SchemaType):
             next_node = node[next_name]
             next_appstruct = appstruct[next_name]
             appstruct[next_name] = next_node.typ.set_value(
-                next_node, next_appstruct, rest, value
-            )
+                next_node, next_appstruct, rest, value)
         else:
             appstruct[path] = value
         return appstruct
@@ -959,7 +760,7 @@ class Mapping(SchemaType):
         return appstruct[path]
 
 
-class Positional:
+class Positional(object):
     """
     Marker abstract base class meaning 'this type has children which
     should be addressed by position instead of name' (e.g. via seq[0],
@@ -967,9 +768,8 @@ class Positional:
     creating a dictionary representation of an error tree.
     """
 
-
 class Tuple(Positional, SchemaType):
-    """A type which represents a fixed-length sequence of nodes.
+    """ A type which represents a fixed-length sequence of nodes.
 
     The subnodes of the :class:`colander.SchemaNode` that wraps
     this type imply the positional elements of the tuple in the order
@@ -983,24 +783,22 @@ class Tuple(Positional, SchemaType):
     method of this class, the :attr:`colander.null` value will be
     returned.
     """
-
     def _validate(self, node, value):
         if not hasattr(value, '__iter__'):
             raise Invalid(
-                node, _('"${val}" is not iterable', mapping={'val': value})
-            )
+                node,
+                _('"${val}" is not iterable', mapping={'val':value})
+                )
 
         valuelen, nodelen = len(value), len(node.children)
 
         if valuelen != nodelen:
             raise Invalid(
                 node,
-                _(
-                    '"${val}" has an incorrect number of elements '
-                    '(expected ${exp}, was ${was})',
-                    mapping={'val': value, 'exp': nodelen, 'was': valuelen},
-                ),
-            )
+                _('"${val}" has an incorrect number of elements '
+                  '(expected ${exp}, was ${was})',
+                  mapping={'val':value, 'exp':nodelen, 'was':valuelen})
+                )
 
         return list(value)
 
@@ -1062,13 +860,12 @@ class Tuple(Positional, SchemaType):
         if listitem:
             selfprefix = prefix
         else:
-            selfprefix = f'{prefix}{node.name}.'
+            selfprefix = '%s%s.' % (prefix, node.name)
 
         for num, subnode in enumerate(node.children):
             substruct = appstruct[num]
-            result.update(
-                subnode.typ.flatten(subnode, substruct, prefix=selfprefix)
-            )
+            result.update(subnode.typ.flatten(subnode, substruct,
+                                              prefix=selfprefix))
         return result
 
     def unflatten(self, node, paths, fstruct):
@@ -1084,7 +881,7 @@ class Tuple(Positional, SchemaType):
             next_name, rest = path.split('.', 1)
         else:
             next_name, rest = path, None
-        for index, next_node in enumerate(node.children):  # noqa B007
+        for index, next_node in enumerate(node.children):
             if next_node.name == next_name:
                 break
         else:
@@ -1092,8 +889,7 @@ class Tuple(Positional, SchemaType):
         if rest is not None:
             next_appstruct = appstruct[index]
             appstruct[index] = next_node.typ.set_value(
-                next_node, next_appstruct, rest, value
-            )
+                next_node, next_appstruct, rest, value)
         else:
             appstruct[index] = value
         return tuple(appstruct)
@@ -1103,7 +899,7 @@ class Tuple(Positional, SchemaType):
             name, rest = path.split('.', 1)
         else:
             name, rest = path, None
-        for index, next_node in enumerate(node.children):  # noqa B007
+        for index, next_node in enumerate(node.children):
             if next_node.name == name:
                 break
         else:
@@ -1114,7 +910,7 @@ class Tuple(Positional, SchemaType):
 
 
 class Set(SchemaType):
-    """A type representing a non-overlapping set of items.
+    """ A type representing a non-overlapping set of items.
     Deserializes an iterable to a ``set`` object.
 
     If the :attr:`colander.null` value is passed to the serialize
@@ -1138,16 +934,16 @@ class Set(SchemaType):
         if not is_nonstr_iter(cstruct):
             raise Invalid(
                 node,
-                _('${cstruct} is not iterable', mapping={'cstruct': cstruct}),
+                _('${cstruct} is not iterable', mapping={'cstruct': cstruct})
             )
 
         return set(cstruct)
 
 
 class List(SchemaType):
-    """Type representing an ordered sequence of items.
+    """ Type representing an ordered sequence of items.
 
-    Deserializes an iterable to a ``list`` object.
+    Desrializes an iterable to a ``list`` object.
 
     If the :attr:`colander.null` value is passed to the serialize
     method of this class, the :attr:`colander.null` value will be
@@ -1169,7 +965,7 @@ class List(SchemaType):
         if not is_nonstr_iter(cstruct):
             raise Invalid(
                 node,
-                _('${cstruct} is not iterable', mapping={'cstruct': cstruct}),
+                _('${cstruct} is not iterable', mapping={'cstruct': cstruct})
             )
 
         return list(cstruct)
@@ -1182,7 +978,6 @@ class SequenceItems(list):
     Usually these values need to be treated specially, because all of the
     children of a Sequence are not present in a schema.
     """
-
 
 class Sequence(Positional, SchemaType):
     """
@@ -1212,23 +1007,20 @@ class Sequence(Positional, SchemaType):
     If the :attr:`colander.null` value is passed to the serialize
     method of this class, the :attr:`colander.null` value is returned.
     """
-
     def __init__(self, accept_scalar=False):
         self.accept_scalar = accept_scalar
 
     def _validate(self, node, value, accept_scalar):
-        if (
-            hasattr(value, '__iter__')
-            and not hasattr(value, 'get')
-            and not isinstance(value, str)
-        ):
+        if (hasattr(value, '__iter__') and
+            not hasattr(value, 'get') and
+            not isinstance(value, string_types)):
             return list(value)
         if accept_scalar:
             return [value]
         else:
-            raise Invalid(
-                node, _('"${val}" is not iterable', mapping={'val': value})
-            )
+            raise Invalid(node, _('"${val}" is not iterable',
+                                  mapping={'val':value})
+                         )
 
     def cstruct_children(self, node, cstruct):
         if cstruct is null:
@@ -1247,8 +1039,8 @@ class Sequence(Positional, SchemaType):
         subnode = node.children[0]
         for num, subval in enumerate(value):
             if subval is drop or (
-                subval is null
-                and getattr(subnode, default_or_missing, None) is drop
+                subval is null and
+                getattr(subnode, default_or_missing, None) is drop
             ):
                 continue
             try:
@@ -1328,38 +1120,31 @@ class Sequence(Positional, SchemaType):
         if listitem:
             selfprefix = prefix
         else:
-            selfprefix = f'{prefix}{node.name}.'
+            selfprefix = '%s%s.' % (prefix, node.name)
 
         childnode = node.children[0]
 
         for num, subval in enumerate(appstruct):
-            subname = f'{selfprefix}{num}'
+            subname = '%s%s' % (selfprefix, num)
             subprefix = subname + '.'
-            result.update(
-                childnode.typ.flatten(
-                    childnode, subval, prefix=subprefix, listitem=True
-                )
-            )
+            result.update(childnode.typ.flatten(
+                childnode, subval, prefix=subprefix, listitem=True))
 
         return result
 
     def unflatten(self, node, paths, fstruct):
         only_child = node.children[0]
         child_name = only_child.name
-
         def get_child(name):
             return only_child
-
         def rewrite_subpath(subpath):
             if '.' in subpath:
                 suffix = subpath.split('.', 1)[1]
-                return f'{child_name}.{suffix}'
+                return '%s.%s' % (child_name, suffix)
             return child_name
-
-        mapstruct = _unflatten_mapping(
-            node, paths, fstruct, get_child, rewrite_subpath
-        )
-        return [mapstruct[str(index)] for index in range(len(mapstruct))]
+        mapstruct = _unflatten_mapping(node, paths, fstruct,
+                                       get_child, rewrite_subpath)
+        return [mapstruct[str(index)] for index in xrange(len(mapstruct))]
 
     def set_value(self, node, appstruct, path, value):
         if '.' in path:
@@ -1368,8 +1153,7 @@ class Sequence(Positional, SchemaType):
             next_node = node.children[0]
             next_appstruct = appstruct[index]
             appstruct[index] = next_node.typ.set_value(
-                next_node, next_appstruct, rest, value
-            )
+                next_node, next_appstruct, rest, value)
         else:
             index = int(path)
             appstruct[index] = value
@@ -1383,15 +1167,10 @@ class Sequence(Positional, SchemaType):
             return next_node.typ.get_value(next_node, appstruct[index], rest)
         return appstruct[int(path)]
 
-
 Seq = Sequence
 
-
 class String(SchemaType):
-    """A type representing a text string.
-
-    It is always an error to deserialize a non-text/binary type. Binary types
-    are only accepted if the ``encoding`` argument is specified.
+    """ A type representing a Unicode string.
 
     This type constructor accepts two arguments:
 
@@ -1402,32 +1181,46 @@ class String(SchemaType):
        this type will not do any special encoding of the appstruct it is
        provided, nor will the ``deserialize`` method of this type do
        any special decoding of the cstruct it is provided; inputs and
-       outputs will be assumed to be text.  ``encoding`` defaults
+       outputs will be assumed to be Unicode.  ``encoding`` defaults
        to ``None``.
 
        If ``encoding`` is ``None``:
 
-       - Any value to ``serialize`` is run through the ``str`` function to
-         convert to text, and the result is returned.
+       - A Unicode input value to ``serialize`` is returned untouched.
 
-       - A text input value to ``deserialize`` is returned untouched.
+       - A non-Unicode input value to ``serialize`` is run through the
+         ``unicode()`` function without an ``encoding`` parameter
+         (``unicode(value)``) and the result is returned.
+
+       - A Unicode input value to ``deserialize`` is returned untouched.
+
+       - A non-Unicode input value to ``deserialize`` is run through the
+         ``unicode()`` function without an ``encoding`` parameter
+         (``unicode(value)``) and the result is returned.
 
        If ``encoding`` is not ``None``:
 
-       - Any value to ``serialize`` is run through the ``str`` function to
-         convert to text. The value is then encoded to binary with
-         the encoding parameter (``bytes(value, encoding)``) and the result
-         (a ``bytes`` object) is returned.
+       - A Unicode input value to ``serialize`` is run through the
+         ``unicode`` function with the encoding parameter
+         (``unicode(value, encoding)``) and the result (a ``str``
+         object) is returned.
 
-       - A text input value to ``deserialize`` is returned untouched.
+       - A non-Unicode input value to ``serialize`` is converted to a
+         Unicode using the encoding (``unicode(value, encoding)``);
+         subsequently the Unicode object is re-encoded to a ``str``
+         object using the encoding and returned.
 
-       - A binary input value to ``deserialize`` is decoded to text using
-         the encoding parameter (``str(value, encoding)``) and the result is
-         returned.
+       - A Unicode input value to ``deserialize`` is returned
+         untouched.
 
-       A corollary: If a ``bytes`` (as opposed to a ``str`` object) is
+       - A non-Unicode input value to ``deserialize`` is converted to
+         a ``str`` object using ``str(value``).  The resulting str
+         value is converted to Unicode using the encoding
+         (``unicode(value, encoding)``) and the result is returned.
+
+       A corollary: If a string (as opposed to a unicode object) is
        provided as a value to either the serialize or deserialize
-       method of this type, and the type also has an non-``None``
+       method of this type, and the type also has an non-None
        ``encoding``, the string must be encoded with the type's
        encoding.  If this is not true, an :exc:`colander.Invalid`
        error will result.
@@ -1440,7 +1233,6 @@ class String(SchemaType):
     The subnodes of the :class:`colander.SchemaNode` that wraps
     this type are ignored.
     """
-
     def __init__(self, encoding=None, allow_empty=False):
         self.encoding = encoding
         self.allow_empty = allow_empty
@@ -1450,63 +1242,63 @@ class String(SchemaType):
             return null
 
         try:
-            result = appstruct
-            if not isinstance(result, str):
-                result = str(result)
-            if self.encoding:
-                result = result.encode(self.encoding)
+            if isinstance(appstruct, (text_type, bytes)):
+                encoding = self.encoding
+                if encoding:
+                    result = text_(appstruct, encoding).encode(encoding)
+                else:
+                    result = text_type(appstruct)
+            else:
+                result = text_type(appstruct)
+                if self.encoding:
+                    result = result.encode(self.encoding)
             return result
         except Exception as e:
-            raise Invalid(
-                node,
-                _(
-                    '${val} cannot be serialized: ${err}',
-                    mapping={'val': appstruct, 'err': e},
-                ),
-            )
-
+            raise Invalid(node,
+                          _('${val} cannot be serialized: ${err}',
+                            mapping={'val':appstruct, 'err':e})
+                          )
     def deserialize(self, node, cstruct):
         if cstruct == '' and self.allow_empty:
-            return ''
+            return text_type('')
 
         if not cstruct:
             return null
 
         try:
-            if isinstance(cstruct, str):
-                return cstruct
-            if self.encoding and isinstance(cstruct, bytes):
-                return str(cstruct, self.encoding)
-            raise Invalid(node)
+            result = cstruct
+            if isinstance(result, (text_type, bytes)):
+                if self.encoding:
+                    result = text_(cstruct, self.encoding)
+                else:
+                    result = text_type(cstruct)
+            else:
+                raise Invalid(node)
         except Exception as e:
-            raise Invalid(
-                node,
-                _(
-                    '${val} is not a string: ${err}',
-                    mapping={'val': cstruct, 'err': e},
-                ),
-            )
+            raise Invalid(node,
+                          _('${val} is not a string: ${err}',
+                            mapping={'val':cstruct, 'err':e}))
 
+        return result
 
 Str = String
 
-
 class Number(SchemaType):
-    """Abstract base class for float, int, decimal"""
+    """ Abstract base class for float, int, decimal """
 
     num = None
 
     def serialize(self, node, appstruct):
-        if appstruct in (null, None):
+        if appstruct is null:
             return null
 
         try:
             return str(self.num(appstruct))
         except Exception:
-            raise Invalid(
-                node, _('"${val}" is not a number', mapping={'val': appstruct})
-            )
-
+            raise Invalid(node,
+                          _('"${val}" is not a number',
+                            mapping={'val':appstruct}),
+                          )
     def deserialize(self, node, cstruct):
         if cstruct != 0 and not cstruct:
             return null
@@ -1514,46 +1306,27 @@ class Number(SchemaType):
         try:
             return self.num(cstruct)
         except Exception:
-            raise Invalid(
-                node, _('"${val}" is not a number', mapping={'val': cstruct})
-            )
-
+            raise Invalid(node,
+                          _('"${val}" is not a number',
+                            mapping={'val':cstruct})
+                          )
 
 class Integer(Number):
-    """A type representing an integer.
+    """ A type representing an integer.
 
     If the :attr:`colander.null` value is passed to the serialize
     method of this class, the :attr:`colander.null` value will be
     returned.
 
-    The Integer constructor takes an optional argument ``strict``, which if
-    enabled will verify that the number passed to serialize/deserialize is an
-    integer, and not a float that would get truncated.
-
     The subnodes of the :class:`colander.SchemaNode` that wraps
     this type are ignored.
     """
-
     num = int
-
-    def __init__(self, strict=False):
-        if strict:
-
-            def _strict_int(val):
-                if not float(val).is_integer():
-                    raise ValueError("Value is not an Integer")
-                return int(val)
-
-            self.num = _strict_int
-
-        super().__init__()
-
 
 Int = Integer
 
-
 class Float(Number):
-    """A type representing a float.
+    """ A type representing a float.
 
     If the :attr:`colander.null` value is passed to the serialize
     method of this class, the :attr:`colander.null` value will be
@@ -1562,9 +1335,7 @@ class Float(Number):
     The subnodes of the :class:`colander.SchemaNode` that wraps
     this type are ignored.
     """
-
     num = float
-
 
 class Decimal(Number):
     """
@@ -1589,7 +1360,6 @@ class Decimal(Number):
     The subnodes of the :class:`colander.SchemaNode` that wraps
     this type are ignored.
     """
-
     def __init__(self, quant=None, rounding=None, normalize=False):
         if quant is None:
             self.quant = None
@@ -1609,9 +1379,8 @@ class Decimal(Number):
             result = result.normalize()
         return result
 
-
 class Money(Decimal):
-    """A type representing a money value with two digit precision.
+    """ A type representing a money value with two digit precision.
     Deserialization returns an instance of the Python ``decimal.Decimal``
     type (quantized to two decimal places, rounded up).
 
@@ -1622,13 +1391,11 @@ class Money(Decimal):
     The subnodes of the :class:`colander.SchemaNode` that wraps
     this type are ignored.
     """
-
     def __init__(self):
-        super().__init__(decimal.Decimal('.01'), decimal.ROUND_UP)
-
+        super(Money, self).__init__(decimal.Decimal('.01'), decimal.ROUND_UP)
 
 class Boolean(SchemaType):
-    """A type representing a boolean object.
+    """ A type representing a boolean object.
 
     The constructor accepts these keyword arguments:
 
@@ -1663,14 +1430,8 @@ class Boolean(SchemaType):
     The subnodes of the :class:`colander.SchemaNode` that wraps
     this type are ignored.
     """
-
-    def __init__(
-        self,
-        false_choices=('false', '0'),
-        true_choices=(),
-        false_val='false',
-        true_val='true',
-    ):
+    def __init__(self, false_choices=('false', '0'), true_choices=(),
+                 false_val='false', true_val='true'):
 
         self.false_choices = false_choices
         self.true_choices = true_choices
@@ -1692,10 +1453,10 @@ class Boolean(SchemaType):
 
         try:
             result = str(cstruct)
-        except Exception:
-            raise Invalid(
-                node, _('${val} is not a string', mapping={'val': cstruct})
-            )
+        except:
+            raise Invalid(node,
+                          _('${val} is not a string', mapping={'val':cstruct})
+                          )
         result = result.lower()
 
         if result in self.false_choices:
@@ -1704,27 +1465,20 @@ class Boolean(SchemaType):
             if result in self.true_choices:
                 return True
             else:
-                raise Invalid(
-                    node,
-                    _(
-                        '"${val}" is neither in (${false_choices}) '
-                        'nor in (${true_choices})',
-                        mapping={
-                            'val': cstruct,
-                            'false_choices': self.false_reprs,
-                            'true_choices': self.true_reprs,
-                        },
-                    ),
-                )
+                raise Invalid(node,
+                              _('"${val}" is neither in (${false_choices}) '
+                                'nor in (${true_choices})',
+                                mapping={'val':cstruct,
+                                         'false_choices': self.false_reprs,
+                                         'true_choices': self.true_reprs })
+                              )
 
         return True
 
-
 Bool = Boolean
 
-
 class GlobalObject(SchemaType):
-    """A type representing an importable Python object.  This type
+    """ A type representing an importable Python object.  This type
     serializes 'global' Python objects (objects which can be imported)
     to dotted Python names.
 
@@ -1762,40 +1516,45 @@ class GlobalObject(SchemaType):
     The subnodes of the :class:`colander.SchemaNode` that wraps
     this type are ignored.
     """
-
     def __init__(self, package):
         self.package = package
 
     def _pkg_resources_style(self, node, value):
+<<<<<<< ours:src/colander/__init__.py
         """package.module:attr style"""
+=======
+        """ package.module:attr style """
+        import pkg_resources
+>>>>>>> theirs:colander/__init__.py
         if value.startswith('.') or value.startswith(':'):
             if not self.package:
                 raise Invalid(
                     node,
-                    _(
-                        'relative name "${val}" irresolveable without package',
-                        mapping={'val': value},
-                    ),
-                )
+                    _('relative name "${val}" irresolveable without package',
+                      mapping={'val':value})
+                    )
             if value in ['.', ':']:
                 value = self.package.__name__
             else:
                 value = self.package.__name__ + value
+<<<<<<< ours:src/colander/__init__.py
         value = value.replace(':', '.', 1)
         return self._zope_dottedname_style(node, value)
+=======
+        return pkg_resources.EntryPoint.parse(
+            'x=%s' % value).load(False)
+>>>>>>> theirs:colander/__init__.py
 
     def _zope_dottedname_style(self, node, value):
-        """package.module.attr style"""
+        """ package.module.attr style """
         module = self.package and self.package.__name__ or None
         if value == '.':
             if self.package is None:
                 raise Invalid(
                     node,
-                    _(
-                        'relative name "${val}" irresolveable without package',
-                        mapping={'val': value},
-                    ),
-                )
+                    _('relative name "${val}" irresolveable without package',
+                      mapping={'val':value})
+                    )
             name = module.split('.')
         else:
             name = value.split('.')
@@ -1803,12 +1562,9 @@ class GlobalObject(SchemaType):
                 if module is None:
                     raise Invalid(
                         node,
-                        _(
-                            'relative name "${val}" irresolveable without '
-                            'package',
-                            mapping={'val': value},
-                        ),
-                    )
+                        _('relative name "${val}" irresolveable without '
+                          'package', mapping={'val':value})
+                        )
                 module = module.split('.')
                 name.pop(0)
                 while not name[0]:
@@ -1822,7 +1578,7 @@ class GlobalObject(SchemaType):
             used += '.' + n
             try:
                 found = getattr(found, n)
-            except AttributeError:  # pragma: no cover
+            except AttributeError: # pragma: no cover
                 __import__(used)
                 found = getattr(found, n)
 
@@ -1833,44 +1589,35 @@ class GlobalObject(SchemaType):
             return null
 
         try:
-            if isinstance(appstruct, types.ModuleType):
-                return appstruct.__name__
-            else:
-                return '{0.__module__}.{0.__name__}'.format(appstruct)
-
+            return appstruct.__name__
         except AttributeError:
-            raise Invalid(
-                node, _('"${val}" has no __name__', mapping={'val': appstruct})
-            )
-
+            raise Invalid(node,
+                          _('"${val}" has no __name__',
+                            mapping={'val':appstruct})
+                          )
     def deserialize(self, node, cstruct):
         if not cstruct:
             return null
 
-        if not isinstance(cstruct, str):
-            raise Invalid(
-                node, _('"${val}" is not a string', mapping={'val': cstruct})
-            )
+        if not isinstance(cstruct, string_types):
+            raise Invalid(node,
+                          _('"${val}" is not a string',
+                            mapping={'val':cstruct}))
         try:
             if ':' in cstruct:
                 return self._pkg_resources_style(node, cstruct)
             else:
                 return self._zope_dottedname_style(node, cstruct)
         except ImportError:
-            raise Invalid(
-                node,
-                _(
-                    'The dotted name "${name}" cannot be imported',
-                    mapping={'name': cstruct},
-                ),
-            )
-
+            raise Invalid(node,
+                          _('The dotted name "${name}" cannot be imported',
+                            mapping={'name':cstruct}))
 
 class DateTime(SchemaType):
-    """A type representing a Python ``datetime.datetime`` object.
+    """ A type representing a Python ``datetime.datetime`` object.
 
     This type serializes python ``datetime.datetime`` objects to a
-    `ISO8601 <https://en.wikipedia.org/wiki/ISO_8601>`_ string format.
+    `ISO8601 <http://en.wikipedia.org/wiki/ISO_8601>`_ string format.
     The format includes the date, the time, and the timezone of the
     datetime.
 
@@ -1911,62 +1658,45 @@ class DateTime(SchemaType):
     The subnodes of the :class:`colander.SchemaNode` that wraps
     this type are ignored.
     """
+    err_template =  _('Invalid date')
 
-    err_template = _('Invalid date')
-
-    def __init__(self, default_tzinfo=iso8601.UTC, format=None):
+    def __init__(self, default_tzinfo=iso8601.UTC):
         self.default_tzinfo = default_tzinfo
-        self.format = format
 
     def serialize(self, node, appstruct):
         if not appstruct:
             return null
 
-        # cant use isinstance; dt subs date
-        if type(appstruct) is datetime.date:
+        if type(appstruct) is datetime.date: # cant use isinstance; dt subs date
             appstruct = datetime.datetime.combine(appstruct, datetime.time())
 
         if not isinstance(appstruct, datetime.datetime):
-            raise Invalid(
-                node,
-                _(
-                    '"${val}" is not a datetime object',
-                    mapping={'val': appstruct},
-                ),
-            )
+            raise Invalid(node,
+                          _('"${val}" is not a datetime object',
+                            mapping={'val':appstruct})
+                          )
 
         if appstruct.tzinfo is None:
             appstruct = appstruct.replace(tzinfo=self.default_tzinfo)
-        if not self.format:
-            return appstruct.isoformat()
-        else:
-            return appstruct.strftime(self.format)
+        return appstruct.isoformat()
 
     def deserialize(self, node, cstruct):
         if not cstruct:
             return null
 
         try:
-            if self.format:
-                result = datetime.datetime.strptime(cstruct, self.format)
-                if not result.tzinfo and self.default_tzinfo:
-                    result = result.replace(tzinfo=self.default_tzinfo)
-            else:
-                result = iso8601.parse_date(
-                    cstruct, default_timezone=self.default_tzinfo
-                )
-        except (ValueError, TypeError, iso8601.ParseError) as e:
-            raise Invalid(
-                node, _(self.err_template, mapping={'val': cstruct, 'err': e})
-            )
+            result = iso8601.parse_date(
+                cstruct, default_timezone=self.default_tzinfo)
+        except iso8601.ParseError as e:
+            raise Invalid(node, _(self.err_template,
+                                  mapping={'val':cstruct, 'err':e}))
         return result
 
-
 class Date(SchemaType):
-    """A type representing a Python ``datetime.date`` object.
+    """ A type representing a Python ``datetime.date`` object.
 
     This type serializes python ``datetime.date`` objects to a
-    `ISO8601 <https://en.wikipedia.org/wiki/ISO_8601>`_ string format.
+    `ISO8601 <http://en.wikipedia.org/wiki/ISO_8601>`_ string format.
     The format includes the date only.
 
     The constructor accepts no arguments.
@@ -2002,10 +1732,7 @@ class Date(SchemaType):
     this type are ignored.
     """
 
-    err_template = _('Invalid date')
-
-    def __init__(self, format=None):
-        self.format = format
+    err_template =  _('Invalid date')
 
     def serialize(self, node, appstruct):
         if not appstruct:
@@ -2015,38 +1742,33 @@ class Date(SchemaType):
             appstruct = appstruct.date()
 
         if not isinstance(appstruct, datetime.date):
-            raise Invalid(
-                node,
-                _('"${val}" is not a date object', mapping={'val': appstruct}),
-            )
+            raise Invalid(node,
+                          _('"${val}" is not a date object',
+                            mapping={'val':appstruct})
+                          )
 
-        if self.format:
-            return appstruct.strftime(self.format)
         return appstruct.isoformat()
 
     def deserialize(self, node, cstruct):
         if not cstruct:
             return null
         try:
-            if self.format:
-                result = datetime.datetime.strptime(cstruct, self.format)
-            else:
-                result = iso8601.parse_date(cstruct)
+            result = iso8601.parse_date(cstruct)
             result = result.date()
-        except (ValueError, TypeError, iso8601.ParseError) as e:
-            raise Invalid(
-                node, _(self.err_template, mapping={'val': cstruct, 'err': e})
-            )
+        except iso8601.ParseError as e:
+            raise Invalid(node,
+                          _(self.err_template,
+                            mapping={'val':cstruct, 'err':e})
+                          )
         return result
 
-
 class Time(SchemaType):
-    """A type representing a Python ``datetime.time`` object.
+    """ A type representing a Python ``datetime.time`` object.
 
     .. note:: This type is new as of Colander 0.9.3.
 
     This type serializes python ``datetime.time`` objects to a
-    `ISO8601 <https://en.wikipedia.org/wiki/ISO_8601>`_ string format.
+    `ISO8601 <http://en.wikipedia.org/wiki/ISO_8601>`_ string format.
     The format includes the time only.
 
     The constructor accepts no arguments.
@@ -2082,7 +1804,7 @@ class Time(SchemaType):
     this type are ignored.
     """
 
-    err_template = _('Invalid time')
+    err_template =  _('Invalid time')
 
     def serialize(self, node, appstruct):
         if isinstance(appstruct, datetime.datetime):
@@ -2091,120 +1813,53 @@ class Time(SchemaType):
         if not isinstance(appstruct, datetime.time):
             if not appstruct:
                 return null
-            raise Invalid(
-                node,
-                _('"${val}" is not a time object', mapping={'val': appstruct}),
-            )
+            raise Invalid(node,
+                          _('"${val}" is not a time object',
+                            mapping={'val':appstruct})
+                          )
 
-        return appstruct.isoformat()
+        return appstruct.isoformat().split('.')[0]
 
     def deserialize(self, node, cstruct):
         if not cstruct:
             return null
         try:
             result = iso8601.parse_date(cstruct)
-            return result.time()
-        except (iso8601.ParseError, TypeError) as e:
-            err = e
-        fmts = ['%H:%M:%S.%f', '%H:%M:%S', '%H:%M']
-        for fmt in fmts:
+            result = result.time()
+        except (iso8601.ParseError, TypeError):
             try:
-                return datetime.datetime.strptime(cstruct, fmt).time()
-            except (ValueError, TypeError):
-                continue
-        raise Invalid(
-            node, _(self.err_template, mapping={'val': cstruct, 'err': err})
-        )
+                result = timeparse(cstruct, '%H:%M:%S')
+            except ValueError:
+                try:
+                    result = timeparse(cstruct, '%H:%M')
+                except Exception as e:
+                    raise Invalid(node,
+                                  _(self.err_template,
+                                    mapping={'val':cstruct, 'err':e})
+                                  )
+        return result
 
-
-class Enum(SchemaType):
-    """A type representing a Python ``enum.Enum`` object.
-
-    The constructor accepts three arguments named ``enum_cls``, ``attr``,
-    and ``typ``.
-
-    ``enum_cls`` is a mandatory argument and it should be a subclass of
-    ``enum.Enum``.  This argument represents the appstruct's type.
-
-    ``attr`` is an optional argument.  Its default is ``name``.
-    It is used to pick a serialized value from an enum instance.
-    A serialized value must be unique.
-
-    ``typ`` is an optional argument, and it should be an instance of
-    ``colander.SchemaType``.  This argument represents the cstruct's type.
-    If ``typ`` is not specified, a plain ``colander.String`` is used.
-    """
-
-    def __init__(self, enum_cls, attr=None, typ=None):
-        self.enum_cls = enum_cls
-        self.attr = 'name' if attr is None else attr
-        self.typ = String() if typ is None else typ
-        if self.attr == 'name':
-            self.values = enum_cls.__members__.copy()
-        else:
-            self.values = {}
-            for e in self.enum_cls.__members__.values():
-                v = getattr(e, self.attr)
-                if v in self.values:
-                    raise ValueError(
-                        '%r is not unique in %r', v, self.enum_cls
-                    )
-                self.values[v] = e
-
-    def serialize(self, node, appstruct):
-        if appstruct is null:
-            return null
-
-        if not isinstance(appstruct, self.enum_cls):
-            raise Invalid(
-                node,
-                _(
-                    '"${val}" is not a valid "${cls}"',
-                    mapping={'val': appstruct, 'cls': self.enum_cls.__name__},
-                ),
-            )
-
-        return self.typ.serialize(node, getattr(appstruct, self.attr))
-
-    def deserialize(self, node, cstruct):
-        result = self.typ.deserialize(node, cstruct)
-        if result is null:
-            return null
-
-        if result not in self.values:
-            raise Invalid(
-                node,
-                _(
-                    '"${val}" is not a valid "${cls}"',
-                    mapping={'val': cstruct, 'cls': self.enum_cls.__name__},
-                ),
-            )
-        return self.values[result]
-
-
-def _add_node_child(node, child):
-    insert_before = getattr(child, 'insert_before', None)
-    exists = node.get(child.name, _marker) is not _marker
-    # use exists for microspeed; we could just call __setitem__
-    # exclusively, but it does an enumeration that's unnecessary in the
-    # common (nonexisting) case (.add is faster)
-    if insert_before is None:
-        if exists:
-            node[child.name] = child
-        else:
-            node.add(child)
-    else:
-        if exists:
-            del node[child.name]
-        node.add_before(insert_before, child)
-
+def timeparse(t, format):
+    return datetime.datetime(*time.strptime(t, format)[0:6]).time()
 
 def _add_node_children(node, children):
     for n in children:
-        _add_node_child(node, n)
+        insert_before = getattr(n, 'insert_before', None)
+        exists = node.get(n.name, _marker) is not _marker
+        # use exists for microspeed; we could just call __setitem__
+        # exclusively, but it does an enumeration that's unnecessary in the
+        # common (nonexisting) case (.add is faster)
+        if insert_before is None:
+            if exists:
+                node[n.name] = n
+            else:
+                node.add(n)
+        else:
+            if exists:
+                del node[n.name]
+            node.add_before(insert_before, n)
 
-
-class _SchemaNode:
+class _SchemaNode(object):
     """
     Fundamental building block of schemas.
 
@@ -2279,12 +1934,6 @@ class _SchemaNode:
       The widget attribute is not interpreted by Colander itself, it
       is only meaningful to higher-level systems such as Deform.
 
-    - ``insert_before``: if supplied, it names a sibling defined by a
-      superclass for its parent node; the current node will be inserted
-      before the named node. It is not useful unless a mapping schema is
-      inherited from another mapping schema, and you need to control
-      the ordering of the resulting nodes.
-
     Arbitrary keyword arguments remaining will be attached to the node
     object unmolested.
     """
@@ -2294,7 +1943,7 @@ class _SchemaNode:
     validator = None
     default = null
     missing = required
-    missing_msg = _('Required')
+    missing_msg = 'Required'
     name = ''
     raw_title = _marker  # only changes if title is explicitly set
     title = _marker
@@ -2335,11 +1984,11 @@ class _SchemaNode:
         raise NotImplementedError(
             'Schema node construction without a `typ` argument or '
             'a schema_type() callable present on the node class '
-        )
+            )
 
     @property
     def required(self):
-        """A property which returns ``True`` if the ``missing`` value
+        """ A property which returns ``True`` if the ``missing`` value
         related to this node was not specified.
 
         A return value of ``True`` implies that a ``missing`` value wasn't
@@ -2351,7 +2000,7 @@ class _SchemaNode:
         return self.missing is required
 
     def serialize(self, appstruct=null):
-        """Serialize the :term:`appstruct` to a :term:`cstruct` based
+        """ Serialize the :term:`appstruct` to a :term:`cstruct` based
         on the schema represented by this node and return the
         cstruct.
 
@@ -2364,13 +2013,13 @@ class _SchemaNode:
         """
         if appstruct is null:
             appstruct = self.default
-        if isinstance(appstruct, deferred):  # unbound schema with deferreds
+        if isinstance(appstruct, deferred): # unbound schema with deferreds
             appstruct = null
         cstruct = self.typ.serialize(self, appstruct)
         return cstruct
 
     def flatten(self, appstruct):
-        """Create and return a data structure which is a flattened
+        """ Create and return a data structure which is a flattened
         representation of the passed in struct based on the schema represented
         by this node.  The return data structure is a dictionary; its keys are
         dotted names.  Each dotted name represents a path to a location in the
@@ -2380,7 +2029,7 @@ class _SchemaNode:
         return flat
 
     def unflatten(self, fstruct):
-        """Create and return a data structure with nested substructures based
+        """ Create and return a data structure with nested substructures based
         on the schema represented by this node using the flattened
         representation passed in. This is the inverse operation to
         :meth:`colander.SchemaNode.flatten`."""
@@ -2388,17 +2037,17 @@ class _SchemaNode:
         return self.typ.unflatten(self, paths, fstruct)
 
     def set_value(self, appstruct, dotted_name, value):
-        """Uses the schema to set a value in a nested datastructure from a
-        dotted name path."""
+        """ Uses the schema to set a value in a nested datastructure from a
+        dotted name path. """
         self.typ.set_value(self, appstruct, dotted_name, value)
 
     def get_value(self, appstruct, dotted_name):
-        """Traverses the nested data structure using the schema and retrieves
+        """ Traverses the nested data structure using the schema and retrieves
         the value specified by the dotted name path."""
         return self.typ.get_value(self, appstruct, dotted_name)
 
     def deserialize(self, cstruct=null):
-        """Deserialize the :term:`cstruct` into an :term:`appstruct` based
+        """ Deserialize the :term:`cstruct` into an :term:`appstruct` based
         on the schema, run this :term:`appstruct` through the
         preparer, if one is present, then validate the
         prepared appstruct.  The ``cstruct`` value is deserialized into an
@@ -2425,7 +2074,7 @@ class _SchemaNode:
 
         if self.preparer is not None:
             # if the preparer is a function, call a single preparer
-            if callable(self.preparer):
+            if hasattr(self.preparer, '__call__'):
                 appstruct = self.preparer(appstruct)
             # if the preparer is a list, call each separate preparer
             elif is_nonstr_iter(self.preparer):
@@ -2435,40 +2084,35 @@ class _SchemaNode:
         if appstruct is null:
             appstruct = self.missing
             if appstruct is required:
-                raise Invalid(
-                    self,
-                    _(
-                        self.missing_msg,
-                        mapping={'title': self.title, 'name': self.name},
-                    ),
-                )
+                raise Invalid(self, _(self.missing_msg,
+                                      mapping={'title': self.title,
+                                               'name':self.name}))
 
-            if isinstance(appstruct, deferred):
-                # unbound schema with deferreds
+            if isinstance(appstruct, deferred): # unbound schema with deferreds
                 raise Invalid(self, self.missing_msg)
             # We never deserialize or validate the missing value
             return appstruct
 
         if self.validator is not None:
-            if isinstance(self.validator, deferred):  # unbound
+            if isinstance(self.validator, deferred): # unbound
                 raise UnboundDeferredError(
-                    "Schema node {node} has an unbound "
-                    "deferred validator".format(node=self)
-                )
+                    "Schema node {node} has an unbound deferred validator"
+                    .format(node=self))
             self.validator(self, appstruct)
         return appstruct
 
     def add(self, node):
-        """Append a subnode to this node. ``node`` must be a SchemaNode."""
+        """ Append a subnode to this node. ``node`` must be a SchemaNode."""
         self.children.append(node)
 
     def insert(self, index, node):
-        """Insert a subnode into the position ``index``.  ``node`` must be
+        """ Insert a subnode into the position ``index``.  ``node`` must be
         a SchemaNode."""
         self.children.insert(index, node)
 
     def add_before(self, name, node):
-        """Insert a subnode into the position before the node named ``name``"""
+        """ Insert a subnode into the position before the node named ``name``
+        """
         for pos, sub in enumerate(self.children[:]):
             if sub.name == name:
                 self.insert(pos, node)
@@ -2476,7 +2120,7 @@ class _SchemaNode:
         raise KeyError('No such node named %s' % name)
 
     def get(self, name, default=None):
-        """Return the subnode associated with ``name`` or ``default`` if no
+        """ Return the subnode associated with ``name`` or ``default`` if no
         such node exists."""
         for node in self.children:
             if node.name == name:
@@ -2484,16 +2128,19 @@ class _SchemaNode:
         return default
 
     def clone(self):
-        """Clone the schema node and return the clone.  All subnodes
+        """ Clone the schema node and return the clone.  All subnodes
         are also cloned recursively.  Attributes present in node
         dictionaries are preserved."""
-        cloned = self.__class__(self.typ)
-        cloned.__dict__.update(self.__dict__)
-        cloned.children = [node.clone() for node in self.children]
+        children = [node.clone() for node in self.children]
+        cloned = self.__class__(self.typ, *children)
+
+        attributes = self.__dict__.copy()
+        attributes.pop('children', None)
+        cloned.__dict__.update(attributes)
         return cloned
 
     def bind(self, **kw):
-        """Resolve any deferred values attached to this schema node
+        """ Resolve any deferred values attached to this schema node
         and its children (recursively), using the keywords passed as
         ``kw`` as input to each deferred value.  This function
         *clones* the schema it is called upon and returns the cloned
@@ -2512,51 +2159,44 @@ class _SchemaNode:
             v = getattr(self, k)
             if isinstance(v, deferred):
                 v = v(self, kw)
-                if isinstance(v, SchemaNode):
-                    if not v.name:
-                        v.name = k
-                    if v.raw_title is _marker:
-                        v.title = k.replace('_', ' ').title()
-                    _add_node_child(self, v)
-                else:
-                    setattr(self, k, v)
+                setattr(self, k, v)
         if getattr(self, 'after_bind', None):
             self.after_bind(self, kw)
 
     def cstruct_children(self, cstruct):
-        """Will call the node's type's ``cstruct_children`` method with this
+        """ Will call the node's type's ``cstruct_children`` method with this
         node as a first argument, and ``cstruct`` as a second argument."""
         cstruct_children = getattr(self.typ, 'cstruct_children', None)
         if cstruct_children is None:
             warnings.warn(
-                'The node type %s has no cstruct_children method. '
-                'This method is required to be implemented by schema types '
-                'for compatibility with Colander 0.9.9+. In a future Colander '
+                'The node type %s has no cstruct_children method.'
+                'This method is required to be implemented by schema types for '
+                'compatibility with Colander 0.9.9+.  In a future Colander '
                 'version, the absence of this method will cause an '
                 'exception.  Returning [] for compatibility although it '
                 'may not be the right value.' % self.typ.__class__,
                 DeprecationWarning,
-                stacklevel=2,
-            )
+                stacklevel=2
+                )
             return []
         return cstruct_children(self, cstruct)
 
     def __delitem__(self, name):
-        """Remove a subnode by name"""
+        """ Remove a subnode by name """
         for idx, node in enumerate(self.children[:]):
             if node.name == name:
                 return self.children.pop(idx)
         raise KeyError(name)
 
     def __getitem__(self, name):
-        """Get a subnode by name."""
+        """ Get a subnode by name. """
         val = self.get(name, _marker)
         if val is _marker:
             raise KeyError(name)
         return val
 
     def __setitem__(self, name, newnode):
-        """Replace a subnode by name.  ``newnode`` must be a SchemaNode.  If
+        """ Replace a subnode by name.  ``newnode`` must be a SchemaNode.  If
         a subnode named ``name`` doesn't already exist, calling this method
         is the same as setting the node's name to ``name`` and calling the
         ``add`` method with the node (it will be appended to the children
@@ -2569,11 +2209,11 @@ class _SchemaNode:
         self.add(newnode)
 
     def __iter__(self):
-        """Iterate over the children nodes of this schema node"""
+        """ Iterate over the children nodes of this schema node """
         return iter(self.children)
 
     def __contains__(self, name):
-        """Return True if subnode named ``name`` exists in this node"""
+        """ Return True if subnode named ``name`` exists in this node """
         return self.get(name, _marker) is not _marker
 
     def __repr__(self):
@@ -2582,10 +2222,10 @@ class _SchemaNode:
             self.__class__.__name__,
             id(self),
             self.name,
-        )
+            )
 
     def raise_invalid(self, msg, node=None):
-        """Raise a :exc:`colander.Invalid` exception with the message
+        """ Raise a :exc:`colander.Invalid` exception with the message
         ``msg``.  ``node``, if supplied, should be an instance of a
         :class:`colander.SchemaNode`.  If it is not supplied, ``node`` will
         be this node.  Example usage::
@@ -2600,7 +2240,6 @@ class _SchemaNode:
             node = self
         raise Invalid(node, msg)
 
-
 class _SchemaMeta(type):
     def __init__(cls, name, bases, clsattrs):
         nodes = []
@@ -2614,8 +2253,8 @@ class _SchemaMeta(type):
                     value.title = name.replace('_', ' ').title()
                 nodes.append((value._order, value))
 
-        nodes.sort(key=lambda n: n[0])
-        cls.__class_schema_nodes__ = [n[1] for n in nodes]
+        nodes.sort()
+        cls.__class_schema_nodes__ = [ n[1] for n in nodes ]
 
         # Combine all attrs from this class and its _SchemaNode superclasses.
         cls.__all_schema_nodes__ = []
@@ -2623,23 +2262,20 @@ class _SchemaMeta(type):
             csn = getattr(c, '__class_schema_nodes__', [])
             cls.__all_schema_nodes__.extend(csn)
 
-
 # metaclass spelling compatibility across Python 2 and Python 3
 SchemaNode = _SchemaMeta(
-    'SchemaNode', (_SchemaNode,), {'__doc__': _SchemaNode.__doc__}
-)
-
+    'SchemaNode',
+    (_SchemaNode,),
+    {'__doc__': _SchemaNode.__doc__}
+    )
 
 class Schema(SchemaNode):
     schema_type = Mapping
 
-
 MappingSchema = Schema
-
 
 class TupleSchema(SchemaNode):
     schema_type = Tuple
-
 
 class SequenceSchema(SchemaNode):
     schema_type = Sequence
@@ -2647,48 +2283,29 @@ class SequenceSchema(SchemaNode):
     def __init__(self, *args, **kw):
         SchemaNode.__init__(self, *args, **kw)
         if len(self.children) != 1:
-            raise Invalid(
-                self, 'Sequence schemas must have exactly one child node'
-            )
+            raise Invalid(self,
+                          'Sequence schemas must have exactly one child node')
 
-    def clone(self):
-        """Clone the schema node and return the clone.  All subnodes
-        are also cloned recursively.  Attributes present in node
-        dictionaries are preserved."""
-
-        # Cloning a ``SequenceSchema`` doesn't work with ``_SchemaNode.clone``.
-
-        children = [node.clone() for node in self.children]
-        cloned = self.__class__(self.typ, *children)
-
-        attributes = self.__dict__.copy()
-        attributes.pop('children', None)
-        cloned.__dict__.update(attributes)
-        return cloned
-
-
-class deferred:
-    """A decorator which can be used to define deferred schema values
+class deferred(object):
+    """ A decorator which can be used to define deferred schema values
     (missing values, widgets, validators, etc.)"""
-
     def __init__(self, wrapped):
-        functools.update_wrapper(self, wrapped)
+        try:
+            functools.update_wrapper(self, wrapped)
+        except AttributeError: #non-function
+            self.__doc__ = getattr(wrapped, '__doc__', None)
         self.wrapped = wrapped
 
     def __call__(self, node, kw):
         return self.wrapped(node, kw)
 
-
-def _unflatten_mapping(
-    node, paths, fstruct, get_child=None, rewrite_subpath=None
-):
+def _unflatten_mapping(node, paths, fstruct,
+                       get_child=None, rewrite_subpath=None):
     if get_child is None:
         get_child = node.__getitem__
     if rewrite_subpath is None:
-
         def rewrite_subpath(subpath):
             return subpath
-
     node_name = node.name
     if node_name:
         prefix = node_name + '.'
@@ -2707,7 +2324,7 @@ def _unflatten_mapping(
         assert path.startswith(prefix), "Bad node: %s" % path
         subpath = path[prefix_len:]
         if '.' in subpath:
-            name = subpath[: subpath.index('.')]
+            name = subpath[:subpath.index('.')]
         else:
             name = subpath
         if curname is None:
@@ -2715,8 +2332,7 @@ def _unflatten_mapping(
         elif name != curname:
             subnode = get_child(curname)
             appstruct[curname] = subnode.typ.unflatten(
-                subnode, subpaths, subfstruct
-            )
+                subnode, subpaths, subfstruct)
             subfstruct = {}
             subpaths = []
             curname = name
@@ -2726,12 +2342,10 @@ def _unflatten_mapping(
     if curname is not None:
         subnode = get_child(curname)
         appstruct[curname] = subnode.typ.unflatten(
-            subnode, subpaths, subfstruct
-        )
+            subnode, subpaths, subfstruct)
     return appstruct
 
-
-class instantiate:
+class instantiate(object):
     """
     A decorator which can be used to instantiate :class:`SchemaNode`
     elements inline within a class definition.
@@ -2740,14 +2354,8 @@ class instantiate:
     :class:`SchemaNode` during instantiation.
     """
 
-    def __init__(self, *args, **kw):
-        self.args, self.kw = args, kw
+    def __init__(self,*args,**kw):
+        self.args,self.kw = args,kw
 
-    def __call__(self, class_):
-        return class_(*self.args, **self.kw)
-
-
-def is_nonstr_iter(v):
-    if isinstance(v, str):
-        return False
-    return hasattr(v, '__iter__')
+    def __call__(self,class_):
+        return class_(*self.args,**self.kw)
