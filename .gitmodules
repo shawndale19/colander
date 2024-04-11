@@ -1,0 +1,3 @@
+[submodule ".githu"]
+	path = .githu
+	url = https://github.com/Pylons/colander
